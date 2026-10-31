@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>لعبة    أين     ؟</title>
+<style>
+:root{box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px);
+--bg:#f4efe6;--fg:#2b2118;--card:#fffaf0;--cup1:#d9534f;--cup2:#a93a36;--accent:#2e7d5b;--table:#c9a46b}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#1d1813;--fg:#f3e9d8;--card:#2a231b;--cup1:#e0645f;--cup2:#b2433f;--accent:#46b283;--table:#6b5230}}
+html{scroll-padding-top:env(safe-area-inset-top,0px)}
+body{margin:0;background:var(--bg);color:var(--fg);font-family:Tahoma,"Segoe UI",Arial,sans-serif;text-align:center;padding:16px}
+h1{font-size:1.5rem;margin:8px 0}
+.card{max-width:560px;margin:0 auto;background:var(--card);border-radius:16px;padding:16px}
+#msg{min-height:1.6em;font-size:1.1rem;margin:8px 0}
+#stage{position:relative;height:230px;margin:10px 0;direction:ltr;border-bottom:10px solid var(--table);border-radius:0 0 6px 6px}
+.slot{position:absolute;bottom:0;width:25%;height:150px;display:flex;justify-content:center;transition:left .4s ease,transform .2s}
+.ball{visibility:hidden;position:absolute;bottom:4px;width:32px;height:32px;border-radius:50%;background:radial-gradient(circle at 35% 30%,#fff3,#f5c518 40%,#c79200);box-shadow:0 3px 4px #0004}
+.cup{position:absolute;bottom:0;width:88%;max-width:96px;height:120px;background:linear-gradient(90deg,var(--cup2),var(--cup1) 45%,var(--cup2));clip-path:polygon(18% 0,82% 0,100% 100%,0 100%);cursor:pointer;transition:transform .45s ease}
+.cup.img{clip-path:none;background-color:var(--card);height:104px;background-size:cover;background-position:center;border-radius:12px;border:3px solid var(--table);box-sizing:border-box}
+.ball.pic{background-size:cover;background-position:center;width:46px;height:46px;border:2px solid #fff}
+.cup.up{transform:translateY(-85px)}
+.cup.off{cursor:default}
+.row{display:flex;gap:8px;justify-content:center;flex-wrap:wrap;align-items:center;margin-top:8px}
+button,select{font:inherit;padding:8px 14px;border-radius:10px;border:0;background:var(--accent);color:#fff;cursor:pointer}
+button.alt{background:var(--table)}
+select{background:var(--bg);color:var(--fg);border:1px solid var(--table)}
+button:disabled,select:disabled{opacity:.5;cursor:default}
+#score{margin-top:10px;font-size:.95rem}
+</style>
+</head>
+<body>
+<div class="card">
+<h1>  لعبة أين  ؟</h1>
+<div id="msg">اضغط «ابدأ» ثم تابع المخفي  بعينيك</div>
+<div id="stage"></div>
+<div class="row">
+<select id="lvl"><option value="0">سهل</option><option value="1" selected>متوسط</option><option value="2">صعب</option></select>
+<button id="go">ابدأ</button>
+</div>
+<div class="row">
+<button class="alt" id="pickBtn">🖼️ إضافة صور (حتى 4)</button>
+<button class="alt" id="resetBtn">🥤 العودة إلى الأواني</button>
+<input type="file" id="pick" accept="image/*" multiple hidden>
+</div>
+<div class="row">
+<button class="alt" id="ballBtn">🎯 اختيار صورة بدل الكرة</button>
+<button class="alt" id="ballReset">⚽ العودة إلى الكرة</button>
+<input type="file" id="pickBall" accept="image/*" hidden>
+</div>
+<div id="score"></div>
+</div>
+<script>
+let picked=[];const N=4,LV=[{n:7,t:600},{n:10,t:420},{n:14,t:280}];
+const stage=document.getElementById('stage'),msg=document.getElementById('msg'),go=document.getElementById('go'),lvl=document.getElementById('lvl');
+const pick=document.getElementById('pick'),pickBtn=document.getElementById('pickBtn'),resetBtn=document.getElementById('resetBtn');
+const sleep=ms=>new Promise(r=>setTimeout(r,ms));
+let pos=[0,1,2,3],ballCup=0,state='idle',won=0,tries=0,streak=0,urls=[];
+const slots=[],cups=[];
+for(let i=0;i<N;i++){
+  const s=document.createElement('div');s.className='slot';
+  const b=document.createElement('div');b.className='ball';
+  const c=document.createElement('div');c.className='cup off';
+  c.onclick=()=>guess(i);
+  s.append(b,c);stage.append(s);slots.push(s);cups.push(c);
+}
+function place(){slots.forEach((s,i)=>s.style.left=(pos[i]*25)+'%');}
+function showBall(){slots.forEach((s,i)=>s.querySelector('.ball').style.visibility=i===ballCup?'visible':'hidden');}
+function score(){document.getElementById('score').textContent='النتيجة: '+won+' / '+tries+(streak>1?' — سلسلة انتصارات: '+streak+' 🔥':'');}
+function clearImgs(){urls.forEach(u=>URL.revokeObjectURL(u));urls=[];cups.forEach(c=>{c.classList.remove('img');c.style.backgroundImage='';});}
+function reset(){slots.forEach(s=>s.querySelector('.ball').style.visibility='hidden');cups.forEach(c=>{c.classList.remove('up');c.classList.add('off');});pos=[0,1,2,3];place();}
+pickBtn.onclick=()=>{if(state==='idle')pick.click();};
+pick.onchange=()=>{
+  const f=[...pick.files];pick.value='';
+  if(!f.length)return;
+  picked=picked.concat(f).slice(0,N);
+  reset();clearImgs();
+  picked.forEach((file,i)=>{const u=URL.createObjectURL(file);urls.push(u);cups[i].classList.add('img');cups[i].style.backgroundImage='url("'+u+'")';});
+  msg.textContent=picked.length<N?'تم اختيار '+picked.length+' من 4 ✅ اضغط زر الصور مرة أخرى لإضافة الباقي':'تم اختيار الصور الأربع ✅ اضغط «ابدأ»';
+};
+resetBtn.onclick=()=>{if(state!=='idle')return;picked=[];reset();clearImgs();msg.textContent='عدنا إلى الأواني';};
+const pickBall=document.getElementById('pickBall'),ballBtn=document.getElementById('ballBtn'),ballReset=document.getElementById('ballReset');
+let ballUrl=null;
+function setBall(u){document.querySelectorAll('.ball').forEach(b=>{if(u){b.classList.add('pic');b.style.backgroundImage='url("'+u+'")';}else{b.classList.remove('pic');b.style.backgroundImage='';}});}
+ballBtn.onclick=()=>{if(state==='idle')pickBall.click();};
+pickBall.onchange=()=>{const f=pickBall.files[0];pickBall.value='';if(!f)return;if(ballUrl)URL.revokeObjectURL(ballUrl);ballUrl=URL.createObjectURL(f);reset();setBall(ballUrl);msg.textContent='تم اختيار صورة بدل الكرة ✅ اضغط «ابدأ»';};
+ballReset.onclick=()=>{if(state!=='idle')return;if(ballUrl)URL.revokeObjectURL(ballUrl);ballUrl=null;reset();setBall(null);msg.textContent='عدنا إلى الكرة';};
+function lock(v){go.disabled=v;lvl.disabled=v;pickBtn.disabled=v;resetBtn.disabled=v;ballBtn.disabled=v;ballReset.disabled=v;}
+place();score();
+async function start(){
+  if(state!=='idle')return;
+  state='busy';lock(true);
+  reset();
+  ballCup=Math.floor(Math.random()*N);showBall();
+  await sleep(500);
+  msg.textContent='انظر أين الكرة 👀';
+  cups[ballCup].classList.add('up');
+  await sleep(1200);
+  cups[ballCup].classList.remove('up');
+  await sleep(600);
+  msg.textContent='جارٍ الخلط...';
+  const {n,t}=LV[+lvl.value];
+  slots.forEach(s=>s.style.transitionDuration=(t/1000)+'s');
+  for(let k=0;k<n;k++){
+    const a=Math.floor(Math.random()*N);
+    let b;do{b=Math.floor(Math.random()*N);}while(b===a);
+    [pos[a],pos[b]]=[pos[b],pos[a]];
+    slots[a].style.zIndex=2;slots[b].style.zIndex=1;
+    slots[a].style.transform='translateY(-22px)';
+    slots[b].style.transform='translateY(10px)';
+    place();
+    await sleep(t+60);
+    slots[a].style.transform='';slots[b].style.transform='';
+    await sleep(40);
+  }
+  msg.textContent='أين الكرة؟ اضغط على الخيار الصحيح 👆';
+  cups.forEach(c=>c.classList.remove('off'));
+  state='guess';
+}
+async function guess(i){
+  if(state!=='guess')return;
+  state='busy';
+  cups.forEach(c=>c.classList.add('off'));
+  tries++;
+  const ok=i===ballCup;
+  if(ok){won++;streak++;}else streak=0;
+  cups[i].classList.add('up');
+  await sleep(700);
+  cups[ballCup].classList.add('up');
+  msg.textContent=ok?'🎉 أحسنت! وجدت الكرة':'😅 للأسف، الكرة كانت هنا';
+  score();
+  go.textContent='جولة جديدة';lock(false);
+  state='idle';
+}
+go.onclick=start;
+</script>
+</body>
+</html>
